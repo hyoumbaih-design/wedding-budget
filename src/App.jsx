@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect } from "react";
 import { supabase } from "./supabaseClient";
 import { 
-  Plus, Trash2, Printer, Wallet, Cloud, CheckCircle, RefreshCw 
+  Plus, Trash2, Printer, Wallet, Cloud, RefreshCw, AlertCircle, Sparkles, CheckCircle2 
 } from "lucide-react";
 
 const INITIAL_INCOMES = [
@@ -20,7 +20,7 @@ export default function App() {
   const [categories, setCategories] = useState(INITIAL_CATEGORIES);
   const [syncStatus, setSyncStatus] = useState("جاري جلب البيانات...");
 
-  // جلب البيانات من السحابة عند تشغيل التطبيق
+  // جلب البيانات من السحابة
   const fetchData = async () => {
     setSyncStatus("جاري المزامنة...");
     try {
@@ -46,7 +46,7 @@ export default function App() {
     fetchData();
   }, []);
 
-  // دالة الحفظ السحابي
+  // الحفظ السحابي
   const saveDataToCloud = async (newIncomes, newCategories) => {
     setSyncStatus("جاري الحفظ...");
     try {
@@ -69,30 +69,47 @@ export default function App() {
     }
   };
 
-  // مدخلات الإضافة
+  // مدخلات الدخل
   const [newIncName, setNewIncName] = useState("");
   const [newIncAmount, setNewIncAmount] = useState("");
   const [newIncStatus, setNewIncStatus] = useState("available");
 
+  // مدخلات البنود
   const [newItemName, setNewItemName] = useState({});
   const [newItemAmount, setNewItemAmount] = useState({});
   const [newItemPaid, setNewItemPaid] = useState({});
   const [newItemStatus, setNewItemStatus] = useState({});
 
-  // حساب الإجماليات
+  // الحسابات المالية
   const totalIncome = incomes.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
-  const availableIncome = incomes
+  const availableCash = incomes
     .filter((i) => i.status === "available")
     .reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
 
   const allItems = categories.flatMap((c) => c.items);
+  
+  // إجمالي المقدر (بدون الكماليات التي يمكن الاستغناء عنها إذا أردت معرفة الصافي الضروري)
   const totalEstimated = allItems.reduce((acc, curr) => acc + Number(curr.estimated || 0), 0);
   const totalPaid = allItems.reduce((acc, curr) => acc + Number(curr.paid || 0), 0);
-  const totalDebt = allItems
-    .filter((i) => i.status === "debt")
+
+  // حساب ديون الخال والديون الأخرى
+  const debtUncle = allItems
+    .filter((i) => i.status === "debt_uncle")
     .reduce((acc, curr) => acc + (Number(curr.estimated || 0) - Number(curr.paid || 0)), 0);
 
-  const remainingCash = availableIncome - totalPaid;
+  const debtOther = allItems
+    .filter((i) => i.status === "debt_other")
+    .reduce((acc, curr) => acc + (Number(curr.estimated || 0) - Number(curr.paid || 0)), 0);
+
+  const totalDebt = debtUncle + debtOther;
+
+  // مصاريف يمكن الاستغناء عنها
+  const totalOptional = allItems
+    .filter((i) => i.status === "optional")
+    .reduce((acc, curr) => acc + Number(curr.estimated || 0), 0);
+
+  // السيولة المتبقية بعد الدفع كاش
+  const remainingCash = availableCash - totalPaid;
 
   const addIncome = () => {
     if (!newIncName || !newIncAmount) return;
@@ -117,8 +134,8 @@ export default function App() {
     const amount = newItemAmount[catId];
     if (!name || !amount) return;
 
-    const paid = Number(newItemPaid[catId] || 0);
     const status = newItemStatus[catId] || "pending";
+    const paid = status === "completed" ? Number(amount) : Number(newItemPaid[catId] || 0);
 
     const updated = categories.map((cat) => {
       if (cat.id === catId) {
@@ -130,7 +147,7 @@ export default function App() {
               id: "item-" + Date.now(),
               name,
               estimated: Number(amount),
-              paid: status === "completed" ? Number(amount) : paid,
+              paid,
               status
             }
           ]
@@ -144,6 +161,7 @@ export default function App() {
     setNewItemName({ ...newItemName, [catId]: "" });
     setNewItemAmount({ ...newItemAmount, [catId]: "" });
     setNewItemPaid({ ...newItemPaid, [catId]: "" });
+    setNewItemStatus({ ...newItemStatus, [catId]: "pending" });
   };
 
   const deleteItem = (catId, itemId) => {
@@ -157,46 +175,66 @@ export default function App() {
     saveDataToCloud(incomes, updated);
   };
 
+  // مساعد تسمية وتلوين الحالة
+  const getStatusBadge = (status) => {
+    switch(status) {
+      case "completed":
+        return <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-medium">مدفوع كاش</span>;
+      case "debt_uncle":
+        return <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-purple-100 text-purple-800 font-medium">دين من الخال</span>;
+      case "debt_other":
+        return <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-rose-100 text-rose-800 font-medium">دين آخر</span>;
+      case "optional":
+        return <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-medium">يمكن الاستغناء عنه</span>;
+      default:
+        return <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-700 font-medium">قيد الانتظار</span>;
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#fcfbf7] text-[#2c2a29] font-sans p-4 md:p-8 dir-rtl" dir="rtl">
-      {/* رأس الصفحة */}
+      {/* الرأس */}
       <header className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center pb-6 border-b border-[#e6e2d8] gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-[#1f2937]">ميزانية الزواج وإكمال البيت</h1>
           <div className="flex items-center gap-2 mt-1 text-xs text-[#059669]">
             <Cloud size={14} />
             <span className="font-medium">{syncStatus}</span>
-            <button onClick={fetchData} className="text-gray-500 hover:text-black mr-2">
-              <RefreshCw size={12} />
+            <button onClick={fetchData} title="إعادة مزامنة" className="text-gray-500 hover:text-black mr-2">
+              <RefreshCw size={13} />
             </button>
           </div>
         </div>
-        <button onClick={() => window.print()} className="flex items-center gap-1.5 px-3 py-2 bg-[#1f2937] text-white rounded-lg text-sm hover:bg-black">
-          <Printer size={16} /> طباعة / PDF
+        <button onClick={() => window.print()} className="flex items-center gap-2 px-4 py-2 bg-[#1f2937] text-white rounded-lg text-sm hover:bg-black transition-colors shadow-sm">
+          <Printer size={16} /> طباعة / تصدير PDF
         </button>
       </header>
 
-      {/* بطاقات الإحصائيات */}
-      <section className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-5 gap-3 my-6">
+      {/* لوحة المؤشرات المالية */}
+      <section className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-6 gap-3 my-6">
         <div className="bg-white p-4 rounded-xl border border-[#e6e2d8] shadow-sm">
           <span className="text-xs text-[#6b7280]">الميزانية الكلية</span>
-          <div className="text-lg font-bold text-[#1f2937] mt-1">{totalIncome.toLocaleString()} دج</div>
+          <div className="text-base md:text-lg font-bold text-[#1f2937] mt-1">{totalIncome.toLocaleString()} دج</div>
         </div>
         <div className="bg-white p-4 rounded-xl border border-[#e6e2d8] shadow-sm">
           <span className="text-xs text-[#6b7280]">المصاريف المخططة</span>
-          <div className="text-lg font-bold text-[#1f2937] mt-1">{totalEstimated.toLocaleString()} دج</div>
+          <div className="text-base md:text-lg font-bold text-[#1f2937] mt-1">{totalEstimated.toLocaleString()} دج</div>
         </div>
         <div className="bg-white p-4 rounded-xl border border-[#e6e2d8] shadow-sm">
           <span className="text-xs text-[#6b7280]">المدفوع كاش</span>
-          <div className="text-lg font-bold text-[#059669] mt-1">{totalPaid.toLocaleString()} دج</div>
+          <div className="text-base md:text-lg font-bold text-emerald-600 mt-1">{totalPaid.toLocaleString()} دج</div>
         </div>
         <div className="bg-white p-4 rounded-xl border border-[#e6e2d8] shadow-sm">
-          <span className="text-xs text-[#6b7280]">الديون المستحقة</span>
-          <div className="text-lg font-bold text-[#dc2626] mt-1">{totalDebt.toLocaleString()} دج</div>
+          <span className="text-xs text-purple-700 font-medium">دين من الخال</span>
+          <div className="text-base md:text-lg font-bold text-purple-700 mt-1">{debtUncle.toLocaleString()} دج</div>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-[#e6e2d8] shadow-sm">
+          <span className="text-xs text-amber-700 font-medium">قابل للاستغناء عنه</span>
+          <div className="text-base md:text-lg font-bold text-amber-600 mt-1">{totalOptional.toLocaleString()} دج</div>
         </div>
         <div className="bg-white p-4 rounded-xl border border-[#e6e2d8] shadow-sm col-span-2 md:col-span-1">
-          <span className="text-xs text-[#6b7280]">الفائض المتبقي</span>
-          <div className={`text-lg font-bold mt-1 ${remainingCash >= 0 ? "text-[#2563eb]" : "text-[#dc2626]"}`}>
+          <span className="text-xs text-[#6b7280]">السيولة المتبقية</span>
+          <div className={`text-base md:text-lg font-bold mt-1 ${remainingCash >= 0 ? "text-blue-600" : "text-rose-600"}`}>
             {remainingCash.toLocaleString()} دج
           </div>
         </div>
@@ -214,13 +252,13 @@ export default function App() {
               <div key={inc.id} className="flex justify-between items-center p-3 bg-[#f9fafb] rounded-lg border border-[#f3f4f6]">
                 <div>
                   <div className="font-semibold text-sm">{inc.name}</div>
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${inc.status === "available" ? "bg-[#dcfce7] text-[#166534]" : "bg-[#fef9c3] text-[#854d0e]"}`}>
-                    {inc.status === "available" ? "متوفر حالياً" : "متوقع لاحقاً"}
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${inc.status === "available" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                    {inc.status === "available" ? "كاش متوفر" : "متوقع لاحقاً"}
                   </span>
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="font-bold text-sm">{Number(inc.amount).toLocaleString()} دج</span>
-                  <button onClick={() => deleteIncome(inc.id)} className="text-[#9ca3af] hover:text-[#dc2626]">
+                  <button onClick={() => deleteIncome(inc.id)} className="text-gray-400 hover:text-rose-600">
                     <Trash2 size={16} />
                   </button>
                 </div>
@@ -231,10 +269,10 @@ export default function App() {
           <div className="pt-4 border-t border-[#f3f4f6] space-y-2">
             <input
               type="text"
-              placeholder="اسم المصدر (مثال: راتب، ادخار...)"
+              placeholder="اسم المصدر (مثال: راتب، بيع طابعة...)"
               value={newIncName}
               onChange={(e) => setNewIncName(e.target.value)}
-              className="w-full text-sm p-2 border border-[#d1d5db] rounded-lg"
+              className="w-full text-sm p-2.5 border border-gray-300 rounded-lg outline-none focus:border-black"
             />
             <div className="flex gap-2">
               <input
@@ -242,19 +280,19 @@ export default function App() {
                 placeholder="المبلغ (دج)"
                 value={newIncAmount}
                 onChange={(e) => setNewIncAmount(e.target.value)}
-                className="w-1/2 text-sm p-2 border border-[#d1d5db] rounded-lg"
+                className="w-1/2 text-sm p-2.5 border border-gray-300 rounded-lg outline-none focus:border-black"
               />
               <select
                 value={newIncStatus}
                 onChange={(e) => setNewIncStatus(e.target.value)}
-                className="w-1/2 text-sm p-2 border border-[#d1d5db] rounded-lg"
+                className="w-1/2 text-sm p-2.5 border border-gray-300 rounded-lg outline-none focus:border-black bg-white"
               >
-                <option value="available">متوفر حالياً</option>
+                <option value="available">كاش متوفر حالياً</option>
                 <option value="expected">متوقع لاحقاً</option>
               </select>
             </div>
-            <button onClick={addIncome} className="w-full py-2 bg-[#1f2937] text-white rounded-lg text-sm font-medium hover:bg-black">
-              + إضافة مصدر دخل
+            <button onClick={addIncome} className="w-full py-2.5 bg-[#1f2937] text-white rounded-lg text-sm font-medium hover:bg-black transition-colors">
+              + إضافة مصدر تمويل
             </button>
           </div>
         </div>
@@ -270,32 +308,30 @@ export default function App() {
                     <h3 className="font-bold text-base text-[#1f2937]">{cat.name}</h3>
                     <p className="text-xs text-[#6b7280]">{cat.description}</p>
                   </div>
-                  <span className="font-bold text-sm bg-[#f3f4f6] px-3 py-1 rounded-lg">
+                  <span className="font-bold text-sm bg-gray-100 px-3 py-1 rounded-lg">
                     {catTotal.toLocaleString()} دج
                   </span>
                 </div>
 
+                {/* قائمة البنود */}
                 <div className="space-y-2 mb-4">
                   {cat.items.length === 0 ? (
-                    <div className="text-center py-4 text-xs text-[#9ca3af]">لا توجد بنود في هذا القسم بعد.</div>
+                    <div className="text-center py-4 text-xs text-gray-400">لا توجد بنود في هذا القسم بعد.</div>
                   ) : (
                     cat.items.map((item) => (
                       <div key={item.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-3 bg-[#f9fafb] rounded-lg border border-[#f3f4f6] gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-sm">{item.name}</span>
-                          <span className={`text-[11px] px-2 py-0.5 rounded-full ${
-                            item.status === "completed" ? "bg-[#dcfce7] text-[#166534]" :
-                            item.status === "debt" ? "bg-[#fee2e2] text-[#991b1b]" : "bg-[#fef9c3] text-[#854d0e]"
-                          }`}>
-                            {item.status === "completed" ? "مدفوع بالكامل" : item.status === "debt" ? "شراء بالدين" : "قيد الانتظار"}
-                          </span>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-semibold text-sm">{item.name}</span>
+                          {getStatusBadge(item.status)}
                         </div>
-                        <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                        <div className="flex items-center gap-4 w-full sm:w-auto justify-between sm:justify-end">
                           <div className="text-left sm:text-right">
                             <div className="text-xs font-bold text-[#1f2937]">المقدر: {Number(item.estimated).toLocaleString()} دج</div>
-                            {item.paid > 0 && <div className="text-[11px] text-[#059669]">المدفوع: {Number(item.paid).toLocaleString()} دج</div>}
+                            {item.paid > 0 && item.status !== "completed" && (
+                              <div className="text-[11px] text-emerald-600">المدفوع: {Number(item.paid).toLocaleString()} دج</div>
+                            )}
                           </div>
-                          <button onClick={() => deleteItem(cat.id, item.id)} className="text-[#9ca3af] hover:text-[#dc2626]">
+                          <button onClick={() => deleteItem(cat.id, item.id)} className="text-gray-400 hover:text-rose-600">
                             <Trash2 size={16} />
                           </button>
                         </div>
@@ -304,29 +340,32 @@ export default function App() {
                   )}
                 </div>
 
+                {/* فورم إضافة بند */}
                 <div className="flex flex-col sm:flex-row gap-2 pt-3 border-t border-[#f3f4f6]">
                   <input
                     type="text"
-                    placeholder="اسم البند الجديد"
+                    placeholder="اسم البند (مثال: ثلاجة، دهان صالون...)"
                     value={newItemName[cat.id] || ""}
                     onChange={(e) => setNewItemName({ ...newItemName, [cat.id]: e.target.value })}
-                    className="flex-1 text-sm p-2 border border-[#d1d5db] rounded-lg"
+                    className="flex-1 text-sm p-2 border border-gray-300 rounded-lg outline-none focus:border-black"
                   />
                   <input
                     type="number"
-                    placeholder="المبلغ المقدر"
+                    placeholder="المبلغ (دج)"
                     value={newItemAmount[cat.id] || ""}
                     onChange={(e) => setNewItemAmount({ ...newItemAmount, [cat.id]: e.target.value })}
-                    className="w-full sm:w-28 text-sm p-2 border border-[#d1d5db] rounded-lg"
+                    className="w-full sm:w-28 text-sm p-2 border border-gray-300 rounded-lg outline-none focus:border-black"
                   />
                   <select
                     value={newItemStatus[cat.id] || "pending"}
                     onChange={(e) => setNewItemStatus({ ...newItemStatus, [cat.id]: e.target.value })}
-                    className="w-full sm:w-32 text-sm p-2 border border-[#d1d5db] rounded-lg"
+                    className="w-full sm:w-44 text-sm p-2 border border-gray-300 rounded-lg outline-none focus:border-black bg-white"
                   >
-                    <option value="pending">قيد الانتظار</option>
-                    <option value="completed">تم شراؤه (كاش)</option>
-                    <option value="debt">شراء بالدين</option>
+                    <option value="pending">⏳ قيد الانتظار (مخطط)</option>
+                    <option value="completed">✓ تم شراؤه (كاش)</option>
+                    <option value="debt_uncle">🤝 دين من الخال</option>
+                    <option value="debt_other">💳 دين آخر</option>
+                    <option value="optional">⭐ يمكن الاستغناء عنه</option>
                   </select>
                   <button onClick={() => addItem(cat.id)} className="px-4 py-2 bg-[#1f2937] text-white rounded-lg text-sm font-medium hover:bg-black whitespace-nowrap">
                     + إضافة
