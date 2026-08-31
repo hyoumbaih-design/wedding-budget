@@ -88,29 +88,34 @@ export default function App() {
 
   const allItems = categories.flatMap((c) => c.items);
   
+  // 1. مجموع المصاريف الإجمالية كاملة كما هي
   const totalEstimated = allItems.reduce((acc, curr) => acc + Number(curr.estimated || 0), 0);
   const totalPaid = allItems.reduce((acc, curr) => acc + Number(curr.paid || 0), 0);
 
-  // حساب الديون
+  // حساب دين الخال
   const debtUncle = allItems
     .filter((i) => i.status === "debt_uncle")
     .reduce((acc, curr) => acc + (Number(curr.estimated || 0) - Number(curr.paid || 0)), 0);
 
-  const debtOther = allItems
-    .filter((i) => i.status === "debt_other")
-    .reduce((acc, curr) => acc + (Number(curr.estimated || 0) - Number(curr.paid || 0)), 0);
+  // حساب الهدايا المحتملة
+  const totalGifts = allItems
+    .filter((i) => i.status === "gift")
+    .reduce((acc, curr) => acc + Number(curr.estimated || 0), 0);
+
+  // 2. مجموع المصاريف منقوص منها دين الخال والهدايا المحتملة
+  const netEstimatedExpense = totalEstimated - debtUncle - totalGifts;
 
   // مصاريف قابلة للاستغناء
   const totalOptional = allItems
     .filter((i) => i.status === "optional")
     .reduce((acc, curr) => acc + Number(curr.estimated || 0), 0);
 
-  // هدايا متوقعة
-  const totalGifts = allItems
-    .filter((i) => i.status === "gift")
-    .reduce((acc, curr) => acc + Number(curr.estimated || 0), 0);
+  // ديون أخرى
+  const debtOther = allItems
+    .filter((i) => i.status === "debt_other")
+    .reduce((acc, curr) => acc + (Number(curr.estimated || 0) - Number(curr.paid || 0)), 0);
 
-  // السيولة المتبقية بعد الدفع كاش
+  // السيولة المتبقية بعد الكاش المدفوع
   const remainingCash = availableCash - totalPaid;
 
   const addIncome = () => {
@@ -177,7 +182,6 @@ export default function App() {
     saveDataToCloud(incomes, updated);
   };
 
-  // شارات التمييز
   const getStatusBadge = (status) => {
     switch(status) {
       case "completed":
@@ -214,35 +218,42 @@ export default function App() {
         </button>
       </header>
 
-      {/* شريط الإحصائيات والتحليلات */}
-      <section className="max-w-7xl mx-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3 my-6">
+      {/* لوحة المؤشرات المالية */}
+      <section className="max-w-7xl mx-auto grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 my-6">
+        {/* الميزانية الكلية */}
         <div className="bg-white p-3.5 rounded-xl border border-[#e6e2d8] shadow-sm">
           <span className="text-xs text-[#6b7280]">الميزانية الكلية</span>
           <div className="text-base font-bold text-[#1f2937] mt-1">{totalIncome.toLocaleString()} دج</div>
         </div>
+
+        {/* 1. مجموع المصاريف كما هي */}
         <div className="bg-white p-3.5 rounded-xl border border-[#e6e2d8] shadow-sm">
-          <span className="text-xs text-[#6b7280]">المصاريف المقدرة</span>
-          <div className="text-base font-bold text-[#1f2937] mt-1">{totalEstimated.toLocaleString()} دج</div>
+          <span className="text-xs text-gray-600 font-medium">إجمالي المصاريف الكلية</span>
+          <div className="text-base font-bold text-gray-800 mt-1">{totalEstimated.toLocaleString()} دج</div>
         </div>
-        <div className="bg-white p-3.5 rounded-xl border border-[#e6e2d8] shadow-sm">
-          <span className="text-xs text-emerald-700 font-medium">المدفوع كاش</span>
-          <div className="text-base font-bold text-emerald-600 mt-1">{totalPaid.toLocaleString()} دج</div>
+
+        {/* 2. الصافي بعد خصم دين الخال والهدايا */}
+        <div className="bg-white p-3.5 rounded-xl border border-indigo-200 bg-indigo-50/40 shadow-sm">
+          <span className="text-xs text-indigo-700 font-semibold">المصاريف (بدون الخال والهدايا)</span>
+          <div className="text-base font-bold text-indigo-900 mt-1">{netEstimatedExpense.toLocaleString()} دج</div>
         </div>
-        <div className="bg-white p-3.5 rounded-xl border border-[#e6e2d8] shadow-sm">
+
+        {/* دين الخال */}
+        <div className="bg-white p-3.5 rounded-xl border border-purple-200 bg-purple-50/30 shadow-sm">
           <span className="text-xs text-purple-700 font-medium">دين الخال</span>
-          <div className="text-base font-bold text-purple-700 mt-1">{debtUncle.toLocaleString()} دج</div>
+          <div className="text-base font-bold text-purple-800 mt-1">{debtUncle.toLocaleString()} دج</div>
         </div>
-        <div className="bg-white p-3.5 rounded-xl border border-[#e6e2d8] shadow-sm">
+
+        {/* هدايا محتملة */}
+        <div className="bg-white p-3.5 rounded-xl border border-teal-200 bg-teal-50/30 shadow-sm">
           <span className="text-xs text-teal-700 font-medium">هدايا محتملة</span>
-          <div className="text-base font-bold text-teal-700 mt-1">{totalGifts.toLocaleString()} دج</div>
+          <div className="text-base font-bold text-teal-800 mt-1">{totalGifts.toLocaleString()} دج</div>
         </div>
-        <div className="bg-white p-3.5 rounded-xl border border-[#e6e2d8] shadow-sm">
-          <span className="text-xs text-amber-700 font-medium">قابل للاستغناء</span>
-          <div className="text-base font-bold text-amber-600 mt-1">{totalOptional.toLocaleString()} دج</div>
-        </div>
+
+        {/* السيولة المتبقية كاش */}
         <div className="bg-white p-3.5 rounded-xl border border-[#e6e2d8] shadow-sm col-span-2 sm:col-span-1">
-          <span className="text-xs text-[#6b7280]">السيولة المتبقية</span>
-          <div className={`text-base font-bold mt-1 ${remainingCash >= 0 ? "text-blue-600" : "text-rose-600"}`}>
+          <span className="text-xs text-[#6b7280]">السيولة المتبقية كاش</span>
+          <div className={`text-base font-bold mt-1 ${remainingCash >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
             {remainingCash.toLocaleString()} دج
           </div>
         </div>
