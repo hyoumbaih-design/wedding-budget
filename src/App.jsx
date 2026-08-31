@@ -1,7 +1,7 @@
 ﻿import React, { useState, useEffect } from "react";
+import { supabase } from "./supabaseClient";
 import { 
-  Plus, Trash2, Edit2, Check, Download, Upload, 
-  Printer, Wallet, DollarSign, PieChart, TrendingUp, AlertCircle 
+  Plus, Trash2, Printer, Wallet, Cloud, CheckCircle, RefreshCw 
 } from "lucide-react";
 
 const INITIAL_INCOMES = [
@@ -9,54 +9,67 @@ const INITIAL_INCOMES = [
 ];
 
 const INITIAL_CATEGORIES = [
-  {
-    id: "cat-1",
-    name: "إكمال وتشطيب البناء",
-    description: "دهان، كهرباء، سباكة...",
-    items: []
-  },
-  {
-    id: "cat-2",
-    name: "التأثيث والتجهيز",
-    description: "أجهزة كهرومنزلية، أثاث الغرفة، صالون...",
-    items: []
-  },
-  {
-    id: "cat-3",
-    name: "تجهيزات المطبخ والحمام",
-    description: "أواني، تجهيزات صحية، مستلزمات...",
-    items: []
-  },
-  {
-    id: "cat-4",
-    name: "مستلزمات ومصاريف العرس",
-    description: "قاعة، إطعام، كسوة، ليلة العرس...",
-    items: []
-  }
+  { id: "cat-1", name: "إكمال وتشطيب البناء", description: "دهان، كهرباء، سباكة...", items: [] },
+  { id: "cat-2", name: "التأثيث والتجهيز", description: "أجهزة كهرومنزلية، أثاث الغرفة، صالون...", items: [] },
+  { id: "cat-3", name: "تجهيزات المطبخ والحمام", description: "أواني، تجهيزات صحية، مستلزمات...", items: [] },
+  { id: "cat-4", name: "مستلزمات ومصاريف العرس", description: "قاعة، إطعام، كسوة، ليلة العرس...", items: [] }
 ];
 
 export default function App() {
-  // استرجاع البيانات المحفوظة تلقائياً أو استخدام الافتراضية
-  const [incomes, setIncomes] = useState(() => {
-    const saved = localStorage.getItem("wb_incomes");
-    return saved ? JSON.parse(saved) : INITIAL_INCOMES;
-  });
+  const [incomes, setIncomes] = useState(INITIAL_INCOMES);
+  const [categories, setCategories] = useState(INITIAL_CATEGORIES);
+  const [syncStatus, setSyncStatus] = useState("جاري جلب البيانات...");
 
-  const [categories, setCategories] = useState(() => {
-    const saved = localStorage.getItem("wb_categories");
-    return saved ? JSON.parse(saved) : INITIAL_CATEGORIES;
-  });
+  // جلب البيانات من السحابة عند تشغيل التطبيق
+  const fetchData = async () => {
+    setSyncStatus("جاري المزامنة...");
+    try {
+      const { data, error } = await supabase
+        .from("budget_data")
+        .select("data")
+        .eq("id", "main_budget")
+        .single();
 
-  // حفظ تلقائي فوري عند أي تعديل
+      if (data && data.data) {
+        if (data.data.incomes && data.data.incomes.length > 0) setIncomes(data.data.incomes);
+        if (data.data.categories && data.data.categories.length > 0) setCategories(data.data.categories);
+        setSyncStatus("متصل ومزامن سحابياً ✓");
+      } else {
+        setSyncStatus("متصل ومزامن سحابياً ✓");
+      }
+    } catch (err) {
+      setSyncStatus("خطأ في الاتصال");
+    }
+  };
+
   useEffect(() => {
-    localStorage.setItem("wb_incomes", JSON.stringify(incomes));
-  }, [incomes]);
+    fetchData();
+  }, []);
 
-  useEffect(() => {
-    localStorage.setItem("wb_categories", JSON.stringify(categories));
-  }, [categories]);
+  // دالة الحفظ السحابي
+  const saveDataToCloud = async (newIncomes, newCategories) => {
+    setSyncStatus("جاري الحفظ...");
+    try {
+      const { error } = await supabase.from("budget_data").upsert({
+        id: "main_budget",
+        data: {
+          incomes: newIncomes,
+          categories: newCategories
+        },
+        updated_at: new Date().toISOString()
+      });
 
-  // مدخلات الإضافة الجديدة
+      if (!error) {
+        setSyncStatus("تم الحفظ في السحابة ✓");
+      } else {
+        setSyncStatus("فشل الحفظ: " + error.message);
+      }
+    } catch (err) {
+      setSyncStatus("خطأ أثناء الحفظ");
+    }
+  };
+
+  // مدخلات الإضافة
   const [newIncName, setNewIncName] = useState("");
   const [newIncAmount, setNewIncAmount] = useState("");
   const [newIncStatus, setNewIncStatus] = useState("available");
@@ -81,27 +94,24 @@ export default function App() {
 
   const remainingCash = availableIncome - totalPaid;
 
-  // دوال الدخل
   const addIncome = () => {
     if (!newIncName || !newIncAmount) return;
-    setIncomes([
+    const updated = [
       ...incomes,
-      {
-        id: "inc-" + Date.now(),
-        name: newIncName,
-        amount: Number(newIncAmount),
-        status: newIncStatus
-      }
-    ]);
+      { id: "inc-" + Date.now(), name: newIncName, amount: Number(newIncAmount), status: newIncStatus }
+    ];
+    setIncomes(updated);
+    saveDataToCloud(updated, categories);
     setNewIncName("");
     setNewIncAmount("");
   };
 
   const deleteIncome = (id) => {
-    setIncomes(incomes.filter((i) => i.id !== id));
+    const updated = incomes.filter((i) => i.id !== id);
+    setIncomes(updated);
+    saveDataToCloud(updated, categories);
   };
 
-  // دوال المصاريف
   const addItem = (catId) => {
     const name = newItemName[catId];
     const amount = newItemAmount[catId];
@@ -110,93 +120,63 @@ export default function App() {
     const paid = Number(newItemPaid[catId] || 0);
     const status = newItemStatus[catId] || "pending";
 
-    setCategories(
-      categories.map((cat) => {
-        if (cat.id === catId) {
-          return {
-            ...cat,
-            items: [
-              ...cat.items,
-              {
-                id: "item-" + Date.now(),
-                name,
-                estimated: Number(amount),
-                paid: status === "completed" ? Number(amount) : paid,
-                status
-              }
-            ]
-          };
-        }
-        return cat;
-      })
-    );
+    const updated = categories.map((cat) => {
+      if (cat.id === catId) {
+        return {
+          ...cat,
+          items: [
+            ...cat.items,
+            {
+              id: "item-" + Date.now(),
+              name,
+              estimated: Number(amount),
+              paid: status === "completed" ? Number(amount) : paid,
+              status
+            }
+          ]
+        };
+      }
+      return cat;
+    });
 
+    setCategories(updated);
+    saveDataToCloud(incomes, updated);
     setNewItemName({ ...newItemName, [catId]: "" });
     setNewItemAmount({ ...newItemAmount, [catId]: "" });
     setNewItemPaid({ ...newItemPaid, [catId]: "" });
   };
 
   const deleteItem = (catId, itemId) => {
-    setCategories(
-      categories.map((cat) => {
-        if (cat.id === catId) {
-          return { ...cat, items: cat.items.filter((i) => i.id !== itemId) };
-        }
-        return cat;
-      })
-    );
-  };
-
-  // تصدير واستيراد JSON
-  const exportJSON = () => {
-    const data = JSON.stringify({ incomes, categories }, null, 2);
-    const blob = new Blob([data], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `ميزانية-الزواج-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-  };
-
-  const importJSON = (e) => {
-    const fileReader = new FileReader();
-    fileReader.readAsText(e.target.files[0], "UTF-8");
-    fileReader.onload = (event) => {
-      try {
-        const parsed = JSON.parse(event.target.result);
-        if (parsed.incomes && parsed.categories) {
-          setIncomes(parsed.incomes);
-          setCategories(parsed.categories);
-        }
-      } catch (err) {
-        alert("ملف غير صالح!");
+    const updated = categories.map((cat) => {
+      if (cat.id === catId) {
+        return { ...cat, items: cat.items.filter((i) => i.id !== itemId) };
       }
-    };
+      return cat;
+    });
+    setCategories(updated);
+    saveDataToCloud(incomes, updated);
   };
 
   return (
     <div className="min-h-screen bg-[#fcfbf7] text-[#2c2a29] font-sans p-4 md:p-8 dir-rtl" dir="rtl">
-      {/* Header */}
+      {/* رأس الصفحة */}
       <header className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center pb-6 border-b border-[#e6e2d8] gap-4">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold text-[#1f2937]">ميزانية الزواج وإكمال البيت</h1>
-          <p className="text-sm text-[#6b7280] mt-1">دفتر متابعة موحد للمداخيل والمصاريف — البيانات تُحفظ تلقائياً في جهازك</p>
+          <div className="flex items-center gap-2 mt-1 text-xs text-[#059669]">
+            <Cloud size={14} />
+            <span className="font-medium">{syncStatus}</span>
+            <button onClick={fetchData} className="text-gray-500 hover:text-black mr-2">
+              <RefreshCw size={12} />
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <label className="flex items-center gap-1.5 px-3 py-2 bg-white border border-[#d1d5db] rounded-lg text-sm cursor-pointer hover:bg-[#f3f4f6]">
-            <Upload size={16} /> استيراد JSON
-            <input type="file" accept=".json" onChange={importJSON} className="hidden" />
-          </label>
-          <button onClick={exportJSON} className="flex items-center gap-1.5 px-3 py-2 bg-white border border-[#d1d5db] rounded-lg text-sm hover:bg-[#f3f4f6]">
-            <Download size={16} /> تصدير نسخة
-          </button>
-          <button onClick={() => window.print()} className="flex items-center gap-1.5 px-3 py-2 bg-[#1f2937] text-white rounded-lg text-sm hover:bg-black">
-            <Printer size={16} /> طباعة / PDF
-          </button>
-        </div>
+        <button onClick={() => window.print()} className="flex items-center gap-1.5 px-3 py-2 bg-[#1f2937] text-white rounded-lg text-sm hover:bg-black">
+          <Printer size={16} /> طباعة / PDF
+        </button>
       </header>
 
-      {/* KPI Cards */}
+      {/* بطاقات الإحصائيات */}
       <section className="max-w-7xl mx-auto grid grid-cols-2 md:grid-cols-5 gap-3 my-6">
         <div className="bg-white p-4 rounded-xl border border-[#e6e2d8] shadow-sm">
           <span className="text-xs text-[#6b7280]">الميزانية الكلية</span>
@@ -222,7 +202,7 @@ export default function App() {
         </div>
       </section>
 
-      {/* Main Grid */}
+      {/* المحتوى الرئيسي */}
       <main className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* مصادر الدخل */}
         <div className="bg-white p-5 rounded-xl border border-[#e6e2d8] shadow-sm h-fit">
@@ -295,7 +275,6 @@ export default function App() {
                   </span>
                 </div>
 
-                {/* قائمة البنود */}
                 <div className="space-y-2 mb-4">
                   {cat.items.length === 0 ? (
                     <div className="text-center py-4 text-xs text-[#9ca3af]">لا توجد بنود في هذا القسم بعد.</div>
@@ -325,7 +304,6 @@ export default function App() {
                   )}
                 </div>
 
-                {/* إضافة بند جديد */}
                 <div className="flex flex-col sm:flex-row gap-2 pt-3 border-t border-[#f3f4f6]">
                   <input
                     type="text"
