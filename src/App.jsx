@@ -2,7 +2,7 @@
 import { supabase } from "./supabaseClient";
 import { 
   Plus, Trash2, Printer, Wallet, Cloud, RefreshCw, Gift,
-  LayoutDashboard, ShoppingBag, CheckSquare, Users, History, Check, X, Phone, Edit2, Save
+  LayoutDashboard, ShoppingBag, CheckSquare, Users, History, Check, X, Phone, Edit2, FlaskConical, Download, RotateCcw
 } from "lucide-react";
 
 const DEFAULT_APP_DATA = {
@@ -33,6 +33,9 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState("dashboard");
   const [data, setData] = useState(DEFAULT_APP_DATA);
   const [syncStatus, setSyncStatus] = useState("جاري جلب البيانات...");
+
+  // حالة "المحاولات والتجارب" (نسخة معزولة تماماً في الذاكرة)
+  const [sandboxData, setSandboxData] = useState(null);
 
   // حالة التعديل العامة (Inline Editing)
   const [editingId, setEditingId] = useState(null);
@@ -82,7 +85,20 @@ export default function App() {
     }
   };
 
-  // مدخلات الإضافة الجديدة
+  // فتح وضع المحاولات بأخذ نسخة جديدة من البيانات الحقيقية
+  const enterSandbox = () => {
+    setSandboxData(JSON.parse(JSON.stringify(data)));
+    setCurrentTab("sandbox");
+    cancelEditing();
+  };
+
+  // إعادة ضبط المحاولة من الصفر
+  const resetSandbox = () => {
+    setSandboxData(JSON.parse(JSON.stringify(data)));
+    cancelEditing();
+  };
+
+  // مدخلات الإضافة
   const [newIncName, setNewIncName] = useState("");
   const [newIncAmount, setNewIncAmount] = useState("");
   const [newIncStatus, setNewIncStatus] = useState("available");
@@ -107,7 +123,7 @@ export default function App() {
   const [manualLogPrice, setManualLogPrice] = useState("");
   const [manualLogCategory, setManualLogCategory] = useState("");
 
-  // العمليات المالية
+  // العمليات المالية (الرئيسية)
   const incomes = data.incomes || [];
   const categories = data.categories || [];
   const totalIncome = incomes.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
@@ -122,7 +138,21 @@ export default function App() {
   const netEstimatedExpense = totalEstimated - debtUncle - totalGifts;
   const remainingCash = availableCash - totalPaid;
 
-  // دوال الحفظ عند انتهاء التعديل
+  // الحسابات المالية لوضع "المحاولات" التجريبي
+  const sbIncomes = sandboxData?.incomes || [];
+  const sbCategories = sandboxData?.categories || [];
+  const sbTotalIncome = sbIncomes.reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+  const sbAvailableCash = sbIncomes.filter(i => i.status === "available").reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+  
+  const sbAllItems = sbCategories.flatMap(c => c.items || []);
+  const sbTotalEstimated = sbAllItems.reduce((acc, curr) => acc + Number(curr.estimated || 0), 0);
+  const sbTotalPaid = sbAllItems.reduce((acc, curr) => acc + Number(curr.paid || 0), 0);
+  const sbDebtUncle = sbAllItems.filter(i => i.status === "debt_uncle").reduce((acc, curr) => acc + (Number(curr.estimated || 0) - Number(curr.paid || 0)), 0);
+  const sbTotalGifts = sbAllItems.filter(i => i.status === "gift").reduce((acc, curr) => acc + Number(curr.estimated || 0), 0);
+  const sbNetEstimated = sbTotalEstimated - sbDebtUncle - sbTotalGifts;
+  const sbRemainingCash = sbAvailableCash - sbTotalPaid;
+
+  // دوال التعديل
   const startEditing = (id, currentValues) => {
     setEditingId(id);
     setEditForm(currentValues);
@@ -133,7 +163,7 @@ export default function App() {
     setEditForm({});
   };
 
-  // تعديل الدخل
+  // تعديل وحفظ الميزانية الحقيقية
   const saveIncomeEdit = (id) => {
     const updated = {
       ...data,
@@ -143,7 +173,6 @@ export default function App() {
     cancelEditing();
   };
 
-  // تعديل بنود الميزانية
   const saveCategoryItemEdit = (catId, itemId) => {
     const updatedCategories = categories.map(cat => {
       if (cat.id === catId) {
@@ -171,7 +200,6 @@ export default function App() {
     cancelEditing();
   };
 
-  // تبديل حالة الشراء للبند في الميزانية مباشرة
   const toggleItemBought = (catId, itemId) => {
     const updatedCategories = categories.map(cat => {
       if (cat.id === catId) {
@@ -195,7 +223,119 @@ export default function App() {
     saveToCloud({ ...data, categories: updatedCategories });
   };
 
-  // تعديل بنود المحتملة
+  // دوال التعديل داخل وضع "المحاولات" (لا تحفظ في السحابة)
+  const sbSaveIncomeEdit = (id) => {
+    setSandboxData({
+      ...sandboxData,
+      incomes: sbIncomes.map(inc => inc.id === id ? { ...inc, name: editForm.name, amount: Number(editForm.amount), status: editForm.status } : inc)
+    });
+    cancelEditing();
+  };
+
+  const sbDeleteIncome = (id) => {
+    setSandboxData({
+      ...sandboxData,
+      incomes: sbIncomes.filter(i => i.id !== id)
+    });
+  };
+
+  const sbAddIncome = () => {
+    if (!newIncName || !newIncAmount) return;
+    setSandboxData({
+      ...sandboxData,
+      incomes: [...sbIncomes, { id: "sb-inc-" + Date.now(), name: newIncName, amount: Number(newIncAmount), status: newIncStatus }]
+    });
+    setNewIncName("");
+    setNewIncAmount("");
+  };
+
+  const sbSaveCategoryItemEdit = (catId, itemId) => {
+    setSandboxData({
+      ...sandboxData,
+      categories: sbCategories.map(cat => {
+        if (cat.id === catId) {
+          return {
+            ...cat,
+            items: cat.items.map(item => {
+              if (item.id === itemId) {
+                const newEstimated = Number(editForm.estimated);
+                const isCompleted = editForm.status === "completed";
+                return {
+                  ...item,
+                  name: editForm.name,
+                  estimated: newEstimated,
+                  status: editForm.status,
+                  paid: isCompleted ? newEstimated : 0
+                };
+              }
+              return item;
+            })
+          };
+        }
+        return cat;
+      })
+    });
+    cancelEditing();
+  };
+
+  const sbToggleItemBought = (catId, itemId) => {
+    setSandboxData({
+      ...sandboxData,
+      categories: sbCategories.map(cat => {
+        if (cat.id === catId) {
+          return {
+            ...cat,
+            items: cat.items.map(item => {
+              if (item.id === itemId) {
+                const isNowCompleted = item.status !== "completed";
+                return {
+                  ...item,
+                  status: isNowCompleted ? "completed" : "pending",
+                  paid: isNowCompleted ? Number(item.estimated) : 0
+                };
+              }
+              return item;
+            })
+          };
+        }
+        return cat;
+      })
+    });
+  };
+
+  const sbDeleteItem = (catId, itemId) => {
+    setSandboxData({
+      ...sandboxData,
+      categories: sbCategories.map(cat => cat.id === catId ? { ...cat, items: cat.items.filter(i => i.id !== itemId) } : cat)
+    });
+  };
+
+  const sbAddItem = (catId) => {
+    const name = newItemName[catId];
+    const amount = newItemAmount[catId];
+    if (!name || !amount) return;
+
+    const status = newItemStatus[catId] || "pending";
+    const paid = status === "completed" ? Number(amount) : 0;
+
+    setSandboxData({
+      ...sandboxData,
+      categories: sbCategories.map(cat => {
+        if (cat.id === catId) {
+          return {
+            ...cat,
+            items: [...(cat.items || []), { id: "sb-item-" + Date.now(), name, estimated: Number(amount), paid, status }]
+          };
+        }
+        return cat;
+      })
+    });
+    setNewItemName({ ...newItemName, [catId]: "" });
+    setNewItemAmount({ ...newItemAmount, [catId]: "" });
+    setNewItemStatus({ ...newItemStatus, [catId]: "pending" });
+  };
+
+  // دوال بقية التبويبات الحقيقية
   const savePotentialItemEdit = (catId, itemId) => {
     const updated = {
       ...data,
@@ -208,7 +348,6 @@ export default function App() {
     cancelEditing();
   };
 
-  // تعديل مستلزمات يوم الزواج
   const saveWeddingItemEdit = (catId, itemId) => {
     const updated = {
       ...data,
@@ -221,7 +360,6 @@ export default function App() {
     cancelEditing();
   };
 
-  // تعديل المدعوين
   const saveGuestEdit = (grpId, gstId) => {
     const updated = {
       ...data,
@@ -234,7 +372,6 @@ export default function App() {
     cancelEditing();
   };
 
-  // تعديل سجل المشتريات
   const saveHistoryEdit = (logId) => {
     const updated = {
       ...data,
@@ -249,7 +386,6 @@ export default function App() {
     cancelEditing();
   };
 
-  // إضافة وحذف عادي
   const addIncome = () => {
     if (!newIncName || !newIncAmount) return;
     const updated = {
@@ -326,35 +462,47 @@ export default function App() {
 
           <nav className="space-y-1.5">
             <button
-              onClick={() => setCurrentTab("dashboard")}
+              onClick={() => { setCurrentTab("dashboard"); cancelEditing(); }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${currentTab === "dashboard" ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100"}`}
             >
               <LayoutDashboard size={18} /> الميزانية والتشطيب
             </button>
 
+            {/* زر وضع المحاولات والتجارب المميز */}
             <button
-              onClick={() => setCurrentTab("potential")}
+              onClick={enterSandbox}
+              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-sm font-bold transition-all ${currentTab === "sandbox" ? "bg-amber-500 text-white shadow" : "bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100"}`}
+            >
+              <div className="flex items-center gap-3">
+                <FlaskConical size={18} className={currentTab === "sandbox" ? "text-white" : "text-amber-600"} />
+                <span>🧪 محاولات وتجارب</span>
+              </div>
+              <span className="text-[10px] bg-white/60 text-amber-900 px-1.5 py-0.5 rounded font-bold">مؤقت</span>
+            </button>
+
+            <button
+              onClick={() => { setCurrentTab("potential"); cancelEditing(); }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${currentTab === "potential" ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100"}`}
             >
               <ShoppingBag size={18} /> مصاريف ومشتريات محتملة
             </button>
 
             <button
-              onClick={() => setCurrentTab("weddingShopping")}
+              onClick={() => { setCurrentTab("weddingShopping"); cancelEditing(); }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${currentTab === "weddingShopping" ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100"}`}
             >
               <CheckSquare size={18} /> مستلزمات يوم الزواج
             </button>
 
             <button
-              onClick={() => setCurrentTab("guests")}
+              onClick={() => { setCurrentTab("guests"); cancelEditing(); }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${currentTab === "guests" ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100"}`}
             >
               <Users size={18} /> قائمة المدعوين (المعازيم)
             </button>
 
             <button
-              onClick={() => setCurrentTab("history")}
+              onClick={() => { setCurrentTab("history"); cancelEditing(); }}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${currentTab === "history" ? "bg-gray-900 text-white" : "text-gray-600 hover:bg-gray-100"}`}
             >
               <History size={18} /> سجل المشتريات المنجزة
@@ -375,14 +523,324 @@ export default function App() {
       {/* منطقة المحتوى */}
       <div className="flex-1 p-4 md:p-8 overflow-y-auto">
         
-        {/* التبويب 1: الميزانية والتشطيب */}
+        {/* التبويب الخاص: وضع المحاولات والتجارب (المؤقت) */}
+        {currentTab === "sandbox" && sandboxData && (
+          <div>
+            {/* شريط تنبيهي لوضع التجربة */}
+            <div className="bg-amber-500 text-white p-4 rounded-2xl mb-6 shadow-md flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div>
+                <div className="flex items-center gap-2 font-bold text-lg">
+                  <FlaskConical size={22} /> أنت الآن في وضع "المحاولات والتجارب"
+                </div>
+                <p className="text-xs text-amber-100 mt-1">
+                  كل ما تعدله أو تحذفه هنا هو تجريبي ومؤقت 100%. لن يؤثر على حساباتك الحقيقية، وعند الخروج سيعود كل شيء كما كان.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 self-stretch md:self-auto">
+                <button
+                  onClick={() => window.print()}
+                  className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-4 py-2 bg-white text-amber-900 rounded-xl text-xs font-bold hover:bg-amber-50 shadow-sm"
+                >
+                  <Download size={15} /> حفظ المحاولة PDF
+                </button>
+                <button
+                  onClick={resetSandbox}
+                  className="flex-1 md:flex-none flex items-center justify-center gap-1.5 px-3 py-2 bg-amber-600 text-white rounded-xl text-xs font-semibold hover:bg-amber-700"
+                  title="إلغاء التغييرات والبدء من جديد"
+                >
+                  <RotateCcw size={14} /> إعادة المحاولة
+                </button>
+                <button
+                  onClick={() => setCurrentTab("dashboard")}
+                  className="px-3 py-2 bg-black/30 text-white rounded-xl text-xs font-semibold hover:bg-black/40"
+                >
+                  خروج
+                </button>
+              </div>
+            </div>
+
+            {/* لوحة مؤشرات المحاولة */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
+              <div className="bg-white p-3.5 rounded-xl border border-[#e6e2d8] shadow-sm">
+                <span className="text-xs text-gray-500">الميزانية الكلية (تجربة)</span>
+                <div className="text-base font-bold text-gray-900 mt-1">{sbTotalIncome.toLocaleString()} دج</div>
+              </div>
+              <div className="bg-white p-3.5 rounded-xl border border-[#e6e2d8] shadow-sm">
+                <span className="text-xs text-gray-500">المصاريف المقدرة</span>
+                <div className="text-base font-bold text-gray-900 mt-1">{sbTotalEstimated.toLocaleString()} دج</div>
+              </div>
+              <div className="bg-white p-3.5 rounded-xl border border-indigo-200 bg-indigo-50/40 shadow-sm">
+                <span className="text-xs text-indigo-700 font-semibold">المصاريف (بدون خال وهدايا)</span>
+                <div className="text-base font-bold text-indigo-950 mt-1">{sbNetEstimated.toLocaleString()} دج</div>
+              </div>
+              <div className="bg-white p-3.5 rounded-xl border border-purple-200 bg-purple-50/30 shadow-sm">
+                <span className="text-xs text-purple-700 font-medium">دين الخال</span>
+                <div className="text-base font-bold text-purple-800 mt-1">{sbDebtUncle.toLocaleString()} دج</div>
+              </div>
+              <div className="bg-white p-3.5 rounded-xl border border-teal-200 bg-teal-50/30 shadow-sm">
+                <span className="text-xs text-teal-700 font-medium">هدايا محتملة</span>
+                <div className="text-base font-bold text-teal-800 mt-1">{sbTotalGifts.toLocaleString()} دج</div>
+              </div>
+              <div className="bg-white p-3.5 rounded-xl border border-[#e6e2d8] shadow-sm">
+                <span className="text-xs text-gray-500">السيولة المتبقية</span>
+                <div className={`text-base font-bold mt-1 ${sbRemainingCash >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                  {sbRemainingCash.toLocaleString()} دج
+                </div>
+              </div>
+            </div>
+
+            {/* الأقسام والمداخيل التجريبية */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+              {/* مصادر التمويل التجريبية */}
+              <div className="bg-white p-5 rounded-xl border border-[#e6e2d8] shadow-sm h-fit">
+                <h3 className="text-base font-bold text-gray-900 flex items-center gap-2 mb-4">
+                  <Wallet size={18} /> مصادر الدخل (محاولة)
+                </h3>
+                <div className="space-y-3 mb-4">
+                  {sbIncomes.map((inc) => (
+                    <div key={inc.id} className="p-3 bg-amber-50/50 rounded-lg border border-amber-100">
+                      {editingId === inc.id ? (
+                        <div className="space-y-2">
+                          <input
+                            type="text"
+                            value={editForm.name}
+                            onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                            className="w-full text-xs p-1.5 border rounded"
+                          />
+                          <div className="flex gap-1.5">
+                            <input
+                              type="number"
+                              value={editForm.amount}
+                              onChange={(e) => setEditForm({ ...editForm, amount: e.target.value })}
+                              className="w-1/2 text-xs p-1.5 border rounded"
+                            />
+                            <select
+                              value={editForm.status}
+                              onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                              className="w-1/2 text-xs p-1.5 border rounded bg-white"
+                            >
+                              <option value="available">كاش متوفر</option>
+                              <option value="expected">متوقع لاحقاً</option>
+                            </select>
+                          </div>
+                          <div className="flex justify-end gap-2 pt-1">
+                            <button onClick={() => sbSaveIncomeEdit(inc.id)} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded" title="حفظ"><Check size={16} /></button>
+                            <button onClick={cancelEditing} className="p-1 text-gray-400 hover:bg-gray-100 rounded" title="إلغاء"><X size={16} /></button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex justify-between items-center">
+                          <div>
+                            <div className="font-semibold text-sm">{inc.name}</div>
+                            <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${inc.status === "available" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                              {inc.status === "available" ? "كاش متوفر" : "متوقع لاحقاً"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-sm">{Number(inc.amount).toLocaleString()} دج</span>
+                            <button onClick={() => startEditing(inc.id, { name: inc.name, amount: inc.amount, status: inc.status })} className="text-gray-400 hover:text-blue-600 p-1" title="تعديل">
+                              <Edit2 size={15} />
+                            </button>
+                            <button onClick={() => sbDeleteIncome(inc.id)} className="text-gray-400 hover:text-rose-600 p-1" title="حذف">
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="pt-3 border-t border-gray-100 space-y-2">
+                  <input
+                    type="text"
+                    placeholder="اسم المصدر (تجريبي)"
+                    value={newIncName}
+                    onChange={(e) => setNewIncName(e.target.value)}
+                    className="w-full text-sm p-2 border border-gray-300 rounded-lg outline-none focus:border-black"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="number"
+                      placeholder="المبلغ (دج)"
+                      value={newIncAmount}
+                      onChange={(e) => setNewIncAmount(e.target.value)}
+                      className="w-1/2 text-sm p-2 border border-gray-300 rounded-lg outline-none focus:border-black"
+                    />
+                    <select
+                      value={newIncStatus}
+                      onChange={(e) => setNewIncStatus(e.target.value)}
+                      className="w-1/2 text-sm p-2 border border-gray-300 rounded-lg bg-white outline-none focus:border-black"
+                    >
+                      <option value="available">كاش متوفر</option>
+                      <option value="expected">متوقع لاحقاً</option>
+                    </select>
+                  </div>
+                  <button onClick={sbAddIncome} className="w-full py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700">
+                    + إضافة مصدر دخل تجريبي
+                  </button>
+                </div>
+              </div>
+
+              {/* مصاريف المحاولة */}
+              <div className="lg:col-span-2 space-y-4">
+                {sbCategories.map((cat) => {
+                  const catTotal = (cat.items || []).reduce((acc, curr) => acc + Number(curr.estimated || 0), 0);
+                  return (
+                    <div key={cat.id} className="bg-white p-5 rounded-xl border border-[#e6e2d8] shadow-sm">
+                      <div className="flex justify-between items-center mb-3">
+                        <div>
+                          <h4 className="font-bold text-base text-gray-900">{cat.name}</h4>
+                          <p className="text-xs text-gray-500">{cat.description}</p>
+                        </div>
+                        <span className="font-bold text-sm bg-gray-100 px-3 py-1 rounded-lg">
+                          {catTotal.toLocaleString()} دج
+                        </span>
+                      </div>
+
+                      <div className="space-y-2 mb-4">
+                        {(cat.items || []).length === 0 ? (
+                          <div className="text-center py-3 text-xs text-gray-400">لا توجد بنود بعد في هذه التجربة.</div>
+                        ) : (
+                          cat.items.map((item) => (
+                            <div key={item.id} className="p-3 bg-[#f9fafb] rounded-lg border border-gray-100">
+                              {editingId === item.id ? (
+                                <div className="space-y-2">
+                                  <input
+                                    type="text"
+                                    value={editForm.name}
+                                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                                    className="w-full text-xs p-1.5 border rounded"
+                                    placeholder="اسم البند"
+                                  />
+                                  <div className="flex flex-col sm:flex-row gap-2">
+                                    <input
+                                      type="number"
+                                      value={editForm.estimated}
+                                      onChange={(e) => setEditForm({ ...editForm, estimated: e.target.value })}
+                                      className="w-full sm:w-1/2 text-xs p-1.5 border rounded"
+                                      placeholder="المبلغ"
+                                    />
+                                    <select
+                                      value={editForm.status}
+                                      onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}
+                                      className="w-full sm:w-1/2 text-xs p-1.5 border rounded bg-white"
+                                    >
+                                      <option value="pending">⏳ قيد الانتظار</option>
+                                      <option value="completed">✓ تم شراؤه (كاش)</option>
+                                      <option value="debt_uncle">🤝 دين من الخال</option>
+                                      <option value="gift">🎁 هدية محتملة</option>
+                                      <option value="optional">⭐ يمكن الاستغناء عنه</option>
+                                    </select>
+                                  </div>
+                                  <div className="flex justify-end gap-2 pt-1">
+                                    <button onClick={() => sbSaveCategoryItemEdit(cat.id, item.id)} className="flex items-center gap-1 text-xs px-2.5 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-700">
+                                      <Check size={14} /> حفظ التعديل التجريبي
+                                    </button>
+                                    <button onClick={cancelEditing} className="text-xs px-2.5 py-1 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+                                      إلغاء
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className={`font-semibold text-sm ${item.status === "completed" ? "line-through text-gray-500" : "text-gray-900"}`}>
+                                      {item.name}
+                                    </span>
+                                    {getStatusBadge(item.status)}
+                                  </div>
+
+                                  <div className="flex items-center gap-2.5 w-full sm:w-auto justify-between sm:justify-end">
+                                    <div className="text-xs font-bold text-gray-900">
+                                      {Number(item.estimated).toLocaleString()} دج
+                                    </div>
+
+                                    <button
+                                      onClick={() => sbToggleItemBought(cat.id, item.id)}
+                                      className={`text-xs px-2.5 py-1 rounded-md font-bold transition-all ${
+                                        item.status === "completed"
+                                          ? "bg-emerald-600 text-white"
+                                          : "bg-white border border-gray-300 text-gray-700 hover:bg-emerald-50 hover:text-emerald-700"
+                                      }`}
+                                    >
+                                      {item.status === "completed" ? "تم الشراء ✓" : "شراء كاش"}
+                                    </button>
+
+                                    <button
+                                      onClick={() => startEditing(item.id, { name: item.name, estimated: item.estimated, status: item.status })}
+                                      className="text-gray-400 hover:text-blue-600 p-1"
+                                      title="تعديل في التجربة"
+                                    >
+                                      <Edit2 size={15} />
+                                    </button>
+
+                                    <button
+                                      onClick={() => sbDeleteItem(cat.id, item.id)}
+                                      className="text-gray-400 hover:text-rose-600 p-1"
+                                      title="حذف من التجربة"
+                                    >
+                                      <Trash2 size={15} />
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row gap-2 pt-3 border-t border-gray-100">
+                        <input
+                          type="text"
+                          placeholder="اسم البند التجريبي"
+                          value={newItemName[cat.id] || ""}
+                          onChange={(e) => setNewItemName({ ...newItemName, [cat.id]: e.target.value })}
+                          className="flex-1 text-sm p-2 border border-gray-300 rounded-lg outline-none focus:border-black"
+                        />
+                        <input
+                          type="number"
+                          placeholder="المبلغ (دج)"
+                          value={newItemAmount[cat.id] || ""}
+                          onChange={(e) => setNewItemAmount({ ...newItemAmount, [cat.id]: e.target.value })}
+                          className="w-full sm:w-28 text-sm p-2 border border-gray-300 rounded-lg outline-none focus:border-black"
+                        />
+                        <select
+                          value={newItemStatus[cat.id] || "pending"}
+                          onChange={(e) => setNewItemStatus({ ...newItemStatus, [cat.id]: e.target.value })}
+                          className="w-full sm:w-44 text-sm p-2 border border-gray-300 rounded-lg bg-white outline-none focus:border-black"
+                        >
+                          <option value="pending">⏳ قيد الانتظار</option>
+                          <option value="completed">✓ تم شراؤه (كاش)</option>
+                          <option value="debt_uncle">🤝 دين من الخال</option>
+                          <option value="gift">🎁 هدية محتملة</option>
+                          <option value="optional">⭐ يمكن الاستغناء عنه</option>
+                        </select>
+                        <button onClick={() => sbAddItem(cat.id)} className="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-medium hover:bg-amber-700 whitespace-nowrap">
+                          + إضافة تجريبية
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* التبويب 1: الميزانية والتشطيب الأصلية (الدائمة) */}
         {currentTab === "dashboard" && (
           <div>
-            <header className="pb-4 mb-6 border-b border-[#e6e2d8]">
+            <header className="pb-4 mb-6 border-b border-[#e6e2d8] flex justify-between items-center">
               <h1 className="text-2xl font-bold text-[#1f2937]">الميزانية الرئيسية وتشطيب البيت</h1>
+              <button
+                onClick={enterSandbox}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-100 text-amber-900 border border-amber-300 rounded-lg text-xs font-bold hover:bg-amber-200"
+              >
+                <FlaskConical size={14} /> تجربة محاولة جديدة
+              </button>
             </header>
 
-            {/* لوحة المؤشرات المالية */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
               <div className="bg-white p-3.5 rounded-xl border border-[#e6e2d8] shadow-sm">
                 <span className="text-xs text-gray-500">الميزانية الكلية</span>
@@ -412,10 +870,8 @@ export default function App() {
               </div>
             </div>
 
-            {/* الأقسام والمداخيل */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              
-              {/* مصادر الدخل والتمويل */}
+              {/* مصادر التمويل الحقيقية */}
               <div className="bg-white p-5 rounded-xl border border-[#e6e2d8] shadow-sm h-fit">
                 <h3 className="text-base font-bold text-gray-900 flex items-center gap-2 mb-4">
                   <Wallet size={18} /> مصادر الدخل والتمويل
@@ -580,7 +1036,6 @@ export default function App() {
                                       {Number(item.estimated).toLocaleString()} دج
                                     </div>
 
-                                    {/* زر تم الشراء في الميزانية */}
                                     <button
                                       onClick={() => toggleItemBought(cat.id, item.id)}
                                       className={`text-xs px-2.5 py-1 rounded-md font-bold transition-all ${
@@ -588,21 +1043,18 @@ export default function App() {
                                           ? "bg-emerald-600 text-white"
                                           : "bg-white border border-gray-300 text-gray-700 hover:bg-emerald-50 hover:text-emerald-700"
                                       }`}
-                                      title="تغيير حالة الشراء"
                                     >
                                       {item.status === "completed" ? "تم الشراء ✓" : "شراء كاش"}
                                     </button>
 
-                                    {/* زر التعديل */}
                                     <button
                                       onClick={() => startEditing(item.id, { name: item.name, estimated: item.estimated, status: item.status })}
                                       className="text-gray-400 hover:text-blue-600 p-1"
-                                      title="تعديل السعر أو البند"
+                                      title="تعديل"
                                     >
                                       <Edit2 size={15} />
                                     </button>
 
-                                    {/* زر الحذف */}
                                     <button
                                       onClick={() => deleteItem(cat.id, item.id)}
                                       className="text-gray-400 hover:text-rose-600 p-1"
@@ -662,7 +1114,7 @@ export default function App() {
             <div className="flex justify-between items-center pb-4 mb-6 border-b border-[#e6e2d8]">
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">مصاريف ومشتريات محتملة</h1>
-                <p className="text-xs text-gray-500 mt-1">أنشئ الأقسام التي تريدها للبنود الثانوية وقارن تكاليفها مع زر تعديل فوري.</p>
+                <p className="text-xs text-gray-500 mt-1">أنشئ الأقسام التي تريدها للبنود الثانوية وقارن تكاليفها.</p>
               </div>
             </div>
 
@@ -811,7 +1263,7 @@ export default function App() {
             <div className="flex justify-between items-center pb-4 mb-6 border-b border-[#e6e2d8]">
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">مستلزمات ومشتريات وقت الزواج</h1>
-                <p className="text-xs text-gray-500 mt-1">تتبع المشتريات المنجزة، وتعديل أسعارها فور الاتفاق مع البائعين.</p>
+                <p className="text-xs text-gray-500 mt-1">تتبع المشتريات وتعديل أسعارها فور الاتفاق مع البائعين.</p>
               </div>
             </div>
 
@@ -899,7 +1351,6 @@ export default function App() {
                             </div>
 
                             <div className="flex items-center gap-2 self-end sm:self-center">
-                              {/* زر تبديل حالة الشراء */}
                               <button
                                 onClick={() => {
                                   const updated = {
@@ -928,16 +1379,10 @@ export default function App() {
                                 )}
                               </button>
 
-                              {/* زر التعديل */}
-                              <button
-                                onClick={() => startEditing(item.id, { name: item.name, price: item.price })}
-                                className="text-gray-400 hover:text-blue-600 p-1"
-                                title="تعديل"
-                              >
+                              <button onClick={() => startEditing(item.id, { name: item.name, price: item.price })} className="text-gray-400 hover:text-blue-600 p-1" title="تعديل">
                                 <Edit2 size={15} />
                               </button>
 
-                              {/* زر الحذف */}
                               <button
                                 onClick={() => {
                                   const updated = {
@@ -960,7 +1405,7 @@ export default function App() {
                   <div className="flex flex-col sm:flex-row gap-2 pt-3 border-t border-gray-100">
                     <input
                       type="text"
-                      placeholder="اسم المستلزم (مثال: عطر، قميص أبيض، صحون تقديم...)"
+                      placeholder="اسم المستلزم"
                       value={newWItemName[cat.id] || ""}
                       onChange={(e) => setNewWItemName({ ...newWItemName, [cat.id]: e.target.value })}
                       className="flex-1 text-sm p-2 border border-gray-300 rounded-lg outline-none focus:border-black"
@@ -1012,7 +1457,7 @@ export default function App() {
             <div className="bg-white p-4 rounded-xl border border-[#e6e2d8] mb-6 flex flex-col sm:flex-row gap-3">
               <input
                 type="text"
-                placeholder="اسم تصنيف جديد (مثال: جيران الحي، أصدقاء الولاية الفلانية، زملاء الرياضة...)"
+                placeholder="اسم تصنيف جديد (مثال: جيران الحي، أصدقاء الولاية الفلانية...)"
                 value={newGroupName}
                 onChange={(e) => setNewGroupName(e.target.value)}
                 className="flex-1 text-sm p-2.5 border border-gray-300 rounded-lg outline-none focus:border-black"
@@ -1187,7 +1632,7 @@ export default function App() {
             <div className="flex justify-between items-center pb-4 mb-6 border-b border-[#e6e2d8]">
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">سجل المشتريات المنجزة يدوياً</h1>
-                <p className="text-xs text-gray-500 mt-1">دفتر تدوين ما تم شراؤه فعلياً مع السعر المدفوع وتاريخ الشراء مع إمكانية التعديل.</p>
+                <p className="text-xs text-gray-500 mt-1">تدوين ما تم شراؤه فعلياً مع السعر المدفوع وتاريخ الشراء مع إمكانية التعديل.</p>
               </div>
             </div>
 
@@ -1241,7 +1686,6 @@ export default function App() {
               </button>
             </div>
 
-            {/* عرض السجل */}
             <div className="bg-white rounded-xl border border-[#e6e2d8] overflow-hidden shadow-sm">
               <table className="w-full text-right text-sm">
                 <thead className="bg-gray-50 border-b border-gray-200 text-gray-600">
